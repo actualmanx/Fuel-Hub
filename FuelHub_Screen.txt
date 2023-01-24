@@ -1,0 +1,380 @@
+    if not init then
+    init = true
+    HeaderText = 'FUEL HUB'
+    LastInput = ""
+    Tick = 0
+    Time = '00:00:00'
+   
+    -- Obejcts 
+    Mouse = nil
+    Screen = nil
+    FuelTanks = {}
+    SelectedItemIndex = nil
+    SelectedButtonIndex = nil
+    CurrentImage = nil
+    InfoColumnWidthPadding = 125
+    HasAtmo = false
+    HasSpace = false
+    HasRocket = false
+    ShowAtmo = true
+    ShowSpace = true
+    ShowRocket = true
+    IsFadingUp = true
+    
+    FuelTypes = {}
+    FuelTypes[1] = {Name = 'Nitron', Icon = "resources_generated/iconsLib/materialslib/Nitron.png"}
+    FuelTypes[2] = {Name = 'Kergon', Icon = "resources_generated/iconsLib/materialslib/Kergon.png"}
+    FuelTypes[3] = {Name = 'Xeron', Icon = "resources_generated/iconsLib/materialslib/Xeron.png"}
+        
+    -- Functions
+    function Ternary(condition,x,y) if condition then return x else return y end end
+    function ToColor(w,x,y,z) return {r = w, g = x, b = y, o = z} end
+    function GetPerc(x,y) return math.floor((x/y)*100) end
+    function GetPercNum(x,y) return math.floor((x*y)/100) end
+    
+    function DoReset() 
+       FuelTanks = {} 
+       HasAtmo = false
+       HasSpace = false
+       HasRocket = false
+    end
+    
+    function Split(s, delimiter)
+        result = {};
+        for match in (s..delimiter):gmatch("(.-)"..delimiter) do
+            table.insert(result, match);
+        end
+        return result;
+    end
+    
+    function DisplayText(layer, fnt, text, x, y, alignH, alignV, color)
+        setNextFillColor(layer, color.r, color.g, color.b, color.o)
+        setNextTextAlign(layer, alignH, alignV)
+        addText(layer, fnt, text, x, y)
+    end
+    
+    function DisplayBox(layer, x, y, w, h, fill, shadow, blur, round, stroke, strokeWidth)
+        if stroke ~= nil then setNextStrokeColor(layer, stroke.r, stroke.g, stroke.b, stroke.o) end
+        if strokeWidth ~= nil then setNextStrokeWidth(layer, strokeWidth) end
+        if shadow ~= nil then setNextShadow(layer, blur, shadow.r, shadow.g, shadow.b, shadow.o) end
+        if fill ~= nil then setNextFillColor(layer, fill.r, fill.g, fill.b, fill.o) end
+        if round ~= nil then addBoxRounded(layer, x, y, w, h, round) else addBox(layer, x, y, w, h) end
+    end
+    
+    function GetFuelTank(i)
+        local found = false
+        local f = NewFuelTank(i)
+        
+        for k, v in pairs(FuelTanks) do 
+            if v.Id == f.Id then
+               found = true
+               FuelTanks[k] = f
+            else
+               if f.Class == "A" then HasAtmo = true
+               elseif f.Class == "S" then HasSpace = true
+               elseif f.Class == "R" then HasRocket = true
+               end
+            end
+        end
+        
+        if not found then
+           table.insert(FuelTanks, 1, f)
+           SortByFuelType(nil)
+        end
+    end
+    
+    function GetMouse()
+        local mx, my = getCursor()
+        Mouse = {x = mx, y = my, Down = getCursorDown(), Release = getCursorReleased()}
+    end
+    
+    function GetScreen()
+        local s = {}
+        local x, y = getResolution()
+        s.Width = x
+        s.Height = y
+        s.HalfWidth = math.floor(x/2)
+        s.HalfHeight = math.floor(y/2)
+        s.ThirdWidth = math.floor(x/3)
+        s.ThirdHeight = math.floor(y/3)
+        s.HeaderWidth = 1050
+        s.HeaderHeight = 52
+        s.InfoWidth = math.floor(math.floor(x*0.15)*0.62)
+        s.InfoHeight = y
+        s.HalfInfoWidth = math.floor(math.floor(math.floor(x*0.38)*0.62)/2)
+        s.HalfInfoHeight = math.floor(y/2)
+        s.ContentWidth = x - math.floor(math.floor(x*0.38)*0.62)
+        s.ContentHeight = y
+        s.HalfContentWidth = math.floor((x - math.floor(math.floor(x*0.38)*0.62))/2)
+        s.HalfContentHeight = math.floor(y/2)
+        Screen = s
+    end
+    
+    function CreateButton(i, layer, layer2, font, img, x, tx, y, mx, my, r, tc)
+        local click = false
+        local btnHeight = Screen.InfoWidth
+        local maxNameLen = 33
+        
+        if r and mx > x and mx < x + tx and my > y and my < y + btnHeight then click = true end
+        if tc == nil then tc = ToColor(0.8, 0.8, 0.8, 1) end
+        
+        DisplayBox(layer, x, y, Screen.InfoWidth, btnHeight, Ternary(SelectedItemIndex == i,ToColor(0.15, 0.15, 0.15, 0.5),ToColor(0.25, 0.25, 0.25, 0.5)), Ternary(SelectedItemIndex == i,ToColor(0.8, 0.8, 0.8, 0.5),ToColor(0, 0, 0, 0.5)), 2, nil, nil, nil)
+        addImage(layer2, img, 5, y+5, Screen.InfoWidth - 10, Screen.InfoWidth - 10)
+        return click
+    end
+    
+    function HandleInput()
+        local inputstring = getInput()
+        local input = nil
+        
+        if (inputstring ~= "" and LastInput ~= inputstring) then input = Split(inputstring, "~") end
+        if input ~= nil then ProcessInput(input) end
+    end
+    
+    function ProcessInput(i) 
+        if i[1] == 'F' then
+           GetFuelTank(i)
+           Time = i[#i]
+        elseif i[1] == 'RESET' then
+            DoReset()
+        end 
+    end
+    
+    function DisplayTextArea(layer, text, x, y, width, maxlength, font, alignH, alignV, color)
+        local length = text:len()
+        color = Ternary(color ~= nil, color, ToColor(.8, .8, .8, 1))
+        
+        if alignH == nil then alignH = AlignH_Left end
+        if alignV == nil then alignV = AlignV_Middle end
+        
+        for i = 1, math.ceil(length/maxlength)+1, 1 do
+            local startindex = (i-1)*maxlength + 1
+            local endindex = i*maxlength
+            local subtext = string.sub(text, startindex, Ternary(endindex <= length, endindex, length))
+            DisplayText(layer, font, subtext, x, y + (20*i), alignH, alignV, color)
+        end
+    end
+    
+    function GetFuelBarColor(p)
+        local c = {}
+        local n = 0
+        
+        if p > 50 then
+            n = math.floor(GetPercNum(800, (p - 50) * 2)) * 0.001
+            c = ToColor(1.0 - n, 1.0, 0.2, 1)
+        else
+            n = math.floor(GetPercNum(800, p * 2)) * 0.001
+            c = ToColor(1.0, 0.2 + n, 0.2, 1)
+        end
+        return c
+    end
+    
+    function GetHealthBarColor(p)
+        local c = {}
+        local n = 0
+        
+        if p > 50 then
+            n = math.floor(GetPercNum(800, (p - 50) * 2)) * 0.001
+            c = ToColor(1.0, 1.0 - n, 1.0, 1)
+        else
+            n = math.floor(GetPercNum(800, p * 2)) * 0.001
+            c = ToColor(1.0, 1.0, 0.2 + n, 1)
+        end
+        return c
+    end
+    
+    function GetFuelColor(c)
+        if c == 'A' then return ToColor(0.2,0.5,1,1)
+        elseif c == 'S' then return ToColor(1,1,0.2,1)
+        elseif c == 'R' then return ToColor(1,0.2,1,1)
+        end
+    end
+    
+    function NewFuelTank(i)
+        t = {}
+        t.Id = i[2]
+        t.Class = i[3]
+        t.Name = i[4]
+        t.FuelVolume = i[5]
+        t.MaxVolume = i[6]
+        t.SelfMass = i[7]
+        t.FuelMass = i[8]
+        t.Integrity = i[9]
+        t.HitPoints = i[10]
+        t.MaxtHitPoints = i[11]
+        t.RemainingRestorations = i[12]
+        t.MaxRestorations = i[13]
+        t.FuelName = i[14]
+        return t
+    end
+    
+    function DisplayFuelBar(layer, layer2, i, v, fnt, fnt2, fnt3, x, y)
+        local fuelColor = nil
+        local fuelBarColor = nil
+        local hpBarColor = nil
+        local isEmpty = false
+        local isOffline = false
+        local fadeTick = 0
+        local fuelPerc = GetPerc(tonumber(v.FuelVolume),tonumber(v.MaxVolume))
+        local healthPerc = GetPerc(tonumber(v.FuelVolume),tonumber(v.MaxVolume))
+        
+        if Mouse.Release and Mouse.x > x and Mouse.x < x + 915 and Mouse.y > (y-17) and Mouse.y < (y-17) + 52 then SelectedItemIndex = i end
+        
+        fuelColor = GetFuelColor(v.Class)
+        fuelBarColor = GetFuelBarColor(fuelPerc)
+        hpBarColor = GetHealthBarColor(tonumber(v.Integrity))
+        
+        if fuelPerc == 0 then isEmpty = true end
+        if tonumber(v.Integrity) == 0 then isOffline = true end
+        if IsFadingUp then fadeTick = 1 - ((Tick % 25) * 0.04) else fadeTick = (Tick % 25) * 0.04 end
+        
+        DisplayText(layer, fnt, v.Name, x + 5, y - 2, AlignH_Left, AlignV_Middle, ToColor(0.8,0.8,0.8,1))
+        DisplayText(layer, fnt, math.floor(tonumber(v.FuelVolume))..'|'..math.floor(tonumber(v.MaxVolume))..' L', x + 715, y - 2, AlignH_Right, AlignV_Middle, ToColor(0.8,0.8,0.8,1))
+        DisplayText(layer, fnt, v.FuelName, x + 835, y - 2, AlignH_Right, AlignV_Middle, fuelColor)
+        DisplayText(layer, fnt2, fuelPerc..'%', x + 880, y + 10, AlignH_Center, AlignV_Middle, ToColor(0.8,0.8,0.8,1))
+        DisplayBox(layer, x, y - 17, 915, 52, ToColor(0,0,0,1), nil, nil, nil, fuelColor, 1)
+        DisplayBox(layer, x + 1, y + 12, GetPercNum(840, fuelPerc), 22, fuelBarColor, nil, nil, nil, nil, nil)
+        
+        if tonumber(v.Integrity) < 100 then
+            DisplayBox(layer, x + 1, y + 32, GetPercNum(840, tonumber(v.Integrity)), 2, hpBarColor, nil, nil, nil, nil, nil)
+        end
+        
+        DisplayBox(layer, x + 841, y - 16, 73, 50, ToColor(0.05,0.05,0.05,1), nil, nil, nil, nil, nil)
+        
+        if isEmpty or isOffline then
+            DisplayBox(layer2, x, y - 17, 915, 52, ToColor(0,0,0,0.85), nil, nil, nil, ToColor(1.0,0.2,0.2,1), 1)
+            DisplayText(layer2, fnt3, Ternary(isOffline,'OFFLINE','EMPTY'), x + 440, y+10, AlignH_Center, AlignV_Middle, ToColor(1.0,0.2,0.2,fadeTick))
+        end
+    end
+    
+    function SortByFuelType(o)
+        local ot = {}
+        local tot = {}
+        tot[1] = {}
+        tot[2] = {}
+        tot[3] = {}
+        
+        if o == nil then
+           o = {'a','s','r'} 
+        end
+        
+        for k,v in ipairs(FuelTanks) do
+            if v.Class == 'A' then
+                table.insert(tot[1], 1, v)
+            elseif v.Class == 'S' then
+                table.insert(tot[2], 1, v)
+            elseif v.Class == 'R' then
+                table.insert(tot[3], 1, v)
+            end
+        end
+
+        for k,v in ipairs(o) do
+            if v == 'a' then
+                for j, w in ipairs(tot[1]) do table.insert(ot, #ot+1, w) end    
+            elseif v == 's' then
+                for j, w in ipairs(tot[2]) do table.insert(ot, #ot+1, w) end
+            elseif v == 'r' then
+                for j, w in ipairs(tot[3]) do table.insert(ot, #ot+1, w) end
+            end
+        end
+        
+        FuelTanks = ot
+    end
+    
+    -- These only need called on init
+    GetScreen()
+end
+
+-- Layers
+local forelayer = createLayer()
+local panellayer = createLayer()
+local backlayer = createLayer()
+local headerfont = loadFont("RefrigeratorDeluxe", 30)
+local subheaderfont = loadFont("FiraMono-Bold", 30)
+local font = loadFont("FiraMono-Bold", 20)
+local subfont = loadFont("FiraMono-Bold", 45)
+
+-- Player Actions
+Tick = Tick + 1
+
+if Tick % 50 == 0 and Tick % 25 == 0 then
+    IsFadingUp = true
+elseif Tick % 25 == 0 then
+    IsFadingUp = false
+end
+
+GetMouse()
+HandleInput()
+
+for k,v in ipairs(FuelTypes) do
+    CurrentImage = loadImage(FuelTypes[k].Icon)
+    local selected = false
+    
+    if FuelTypes[k].Name == 'Nitron' and HasAtmo or FuelTypes[k].Name == 'Kergon' and HasSpace or FuelTypes[k].Name == 'Xeron' and HasRocket then 
+        selected = CreateButton(k, panellayer, backlayer, font, CurrentImage, 0, Screen.InfoWidth, Screen.HeaderHeight+(Screen.InfoWidth*(k-1)), Mouse.x, Mouse.y, Mouse.Release)
+    end
+    
+    if selected then
+        if FuelTypes[k].Name == 'Nitron' then
+            ShowAtmo = not ShowAtmo
+        elseif FuelTypes[k].Name == 'Kergon' then
+            ShowSpace = not ShowSpace
+        elseif FuelTypes[k].Name == 'Xeron' then
+            ShowRocket = not ShowRocket
+        end
+    end
+end
+
+if SelectedItemIndex == nil then
+    local buildCount = 1
+    for k,v in ipairs(FuelTanks) do
+        if v.Class == 'A' and ShowAtmo or v.Class == 'S' and ShowSpace or v.Class == 'R' and ShowRocket then
+            DisplayFuelBar(panellayer, backlayer, k, v, font, headerfont, subfont, Screen.InfoWidth + 10, (60 * buildCount) + 25)
+            buildCount = buildCount + 1
+        end
+    end
+else
+    local i = FuelTanks[SelectedItemIndex]
+    local f = FuelTypes[Ternary(i.Class == 'A',1,Ternary(i.Class == 'S', 2, 3))]
+    
+    -- Header, Description, and Image
+    CurrentImage = loadImage(f.Icon)
+    DisplayText(forelayer, subheaderfont, i.Name, Screen.InfoWidth+10, Screen.HeaderHeight + 45, AlignH_Left, AlignV_Middle, ToColor(.8, .8, .2, 1))
+    addImage(forelayer, CurrentImage, Screen.Width - 250, Screen.HeaderHeight + 25, 250, 250)
+    DisplayTextArea(forelayer, i.FuelName, Screen.InfoWidth+10, Screen.HeaderHeight + 55, nil, 65, font, nil, nil, GetFuelColor(i.Class))
+    
+    -- Volume
+    DisplayText(forelayer, subheaderfont, "Volume", Screen.InfoWidth+InfoColumnWidthPadding, Screen.HalfHeight - 70, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .2, 1))
+    DisplayText(forelayer, subheaderfont, math.ceil(i.FuelVolume)..'|'..math.ceil(i.MaxVolume)..' L', Screen.InfoWidth+InfoColumnWidthPadding, Screen.HalfHeight - 30, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .8, 1))
+    
+    -- Mass
+    DisplayText(forelayer, subheaderfont, "Mass", Screen.HalfContentWidth+Screen.InfoWidth, Screen.HalfHeight - 70, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .2, 1))
+    DisplayText(forelayer, subheaderfont, math.ceil(i.FuelMass)..' kg', Screen.HalfContentWidth+Screen.InfoWidth , Screen.HalfHeight - 30, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .8, 1))
+
+    -- HitPoints
+    DisplayText(forelayer, subheaderfont, "HitPoints", Screen.InfoWidth+InfoColumnWidthPadding, Screen.HalfHeight+10, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .2, 1))
+    DisplayText(forelayer, subheaderfont, math.ceil(i.HitPoints)..'|'..math.ceil(i.MaxtHitPoints), Screen.InfoWidth+InfoColumnWidthPadding, Screen.HalfHeight+50, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .8, 1))
+    
+    -- Restorations
+    DisplayText(forelayer, subheaderfont, "Restorations", Screen.HalfContentWidth+Screen.InfoWidth, Screen.HalfHeight+10, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .2, 1))
+    DisplayText(forelayer, subheaderfont, math.ceil(i.RemainingRestorations)..'|'..math.ceil(i.MaxRestorations), Screen.HalfContentWidth+Screen.InfoWidth , Screen.HalfHeight+50, AlignH_Center, AlignV_Middle, ToColor(.8, .8, .8, 1))
+    
+    -- Back Button
+    DisplayText(forelayer, subheaderfont, "BACK", Screen.InfoWidth+InfoColumnWidthPadding + math.floor(150/2), (Screen.Height - 70) + math.floor(52/2), AlignH_Center, AlignV_Middle, ToColor(.2, .2, .2, 1))
+    DisplayBox(forelayer, Screen.InfoWidth+InfoColumnWidthPadding, Screen.Height - 70, 150,  52, ToColor(1, 1, 0.2, 1), ToColor(0, 0, 0, 1), 25, nil, nil, nil)
+    
+    if Mouse.Release and Mouse.x > Screen.InfoWidth+InfoColumnWidthPadding and Mouse.x < Screen.InfoWidth+InfoColumnWidthPadding + 150 and Mouse.y > (Screen.Height - 70) and Mouse.y < (Screen.Height - 70) + 52 then 
+        SelectedItemIndex = nil
+        logMessage('Back')
+    end
+end
+
+-- Header and Info
+DisplayBox(panellayer, 0, 0, Screen.InfoWidth, Screen.InfoHeight, ToColor(.3, .3, .3, 1), ToColor(0, 0, 0, 1), 15, nil, nil, nil)
+DisplayBox(backlayer, 0, 0, Screen.HeaderWidth,  Screen.HeaderHeight, ToColor(1, 1, 0.2, 1), ToColor(0, 0, 0, 1), 25, nil, nil, nil)
+DisplayText(backlayer, headerfont, HeaderText, Screen.HalfWidth, 30, AlignH_Center, AlignV_Middle, ToColor(.1, .1, .1, 1))
+DisplayText(backlayer, headerfont, Time, Screen.Width - 10, 30, AlignH_Right, AlignV_Middle, ToColor(.1, .1, .1, 1))
+setBackgroundColor(.1, .1, .1)
+
+requestAnimationFrame(2)
+    
